@@ -1,0 +1,55 @@
+// Build-time configuration. Credentials live in secrets.h (not versioned).
+#pragma once
+
+#include <stddef.h>
+#include <stdint.h>
+
+#include <esp_camera.h>
+
+#if !__has_include("secrets.h")
+#error "include/secrets.h is missing: copy include/secrets.h.example and fill it in."
+#endif
+#include "secrets.h"
+
+namespace cfg {
+
+// ---- Identity ---------------------------------------------------------------
+constexpr const char *kHostname = "esp32xcam";
+constexpr const char *kServerName = "ESP32xCAM-RTSP/2.0";
+
+// ---- Camera (OV2640) --------------------------------------------------------
+constexpr framesize_t kFrameSize = FRAMESIZE_SVGA;  // 800x600
+// 0..63, lower = better quality and bigger frames. Measured at SVGA: 12 gives
+// ~42 KB frames (WiFi saturates with 4 clients at 10 fps), 20 is the trade-off.
+constexpr int kJpegQuality = 20;
+constexpr int kXclkHz = 20000000;
+constexpr size_t kFrameBufferCount = 2;  // driver double-buffering in PSRAM
+
+// ---- Streaming --------------------------------------------------------------
+constexpr uint32_t kTargetFps = 10;
+constexpr uint32_t kFramePeriodUs = 1000000UL / kTargetFps;
+
+// ---- RTSP -------------------------------------------------------------------
+constexpr uint16_t kRtspPort = 8554;
+constexpr const char *kRtspPath = "stream=0";  // rtsp://<ip>:8554/stream=0
+// lwIP allows 16 sockets: 3 listeners + 2 UDP + 2 HTTP + 1 OTA client + 4 = 12.
+constexpr size_t kMaxRtspSessions = 4;
+constexpr uint32_t kRtspSessionTimeoutS = 60;  // advertised in "Session: ...;timeout="
+constexpr uint16_t kRtpServerPort = 6970;      // even; RTCP uses kRtpServerPort + 1
+// RTP payload budget per packet (fits a 1500-byte MTU with IP/UDP/RTP headers).
+constexpr size_t kRtpMaxPayload = 1400;
+
+// ---- HTTP MJPEG -------------------------------------------------------------
+constexpr uint16_t kHttpPort = 80;
+constexpr size_t kMaxHttpClients = 2;
+
+// ---- OTA --------------------------------------------------------------------
+constexpr uint16_t kOtaPort = 3232;
+
+// ---- Network robustness -----------------------------------------------------
+// A socket write that cannot make progress for this long drops the client.
+constexpr uint32_t kSendStallTimeoutMs = 1500;
+// Clients that sent nothing (RTSP keep-alive / RTCP) for this long are dropped.
+constexpr uint32_t kClientIdleTimeoutMs = kRtspSessionTimeoutS * 1000UL * 2;
+
+}  // namespace cfg

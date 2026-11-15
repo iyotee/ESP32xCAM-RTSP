@@ -1,0 +1,7 @@
+{
+  "name": "rtpjpeg",
+  "version": "2.0.0",
+  "description": "JPEG scan extraction and RFC 2435 RTP packetization (platform independent)",
+  "frameworks": "*",
+  "platforms": "*"
+}

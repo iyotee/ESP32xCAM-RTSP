@@ -1,0 +1,7 @@
+{
+  "name": "rtsp",
+  "version": "2.0.0",
+  "description": "Bounded RTSP/1.0 request parser and response/SDP formatting (platform independent)",
+  "frameworks": "*",
+  "platforms": "*"
+}
