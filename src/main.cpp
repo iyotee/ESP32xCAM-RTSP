@@ -12,6 +12,7 @@
 #include "FrameHub.h"
 #include "HttpMjpegServer.h"
 #include "OtaServer.h"
+#include "OnvifDiscovery.h"
 #include "Ptz.h"
 #include "RtspServer.h"
 #include "WifiLink.h"
@@ -71,6 +72,7 @@ void setup() {
   // be fixed remotely.
   gOta.begin();
   ptz::begin();  // servos may be absent: non-fatal
+  onvifdiscovery::begin();
 
   gStreaming = gRtsp.begin() && gHttp.begin();
   if (!gStreaming) log_e("cannot open listening sockets");
@@ -93,6 +95,7 @@ void loop() {
 
   wifilink::poll(nowMs);
   ptz::poll(nowMs);
+  onvifdiscovery::poll();
   gOta.poll();
   if (gOta.updating()) return;  // the upload handler owns the CPU
 
