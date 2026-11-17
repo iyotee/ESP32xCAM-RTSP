@@ -19,14 +19,14 @@ constexpr const char *kServerName = "ESP32xCAM-RTSP/2.0";
 
 // ---- Camera (OV2640) --------------------------------------------------------
 constexpr framesize_t kFrameSize = FRAMESIZE_SVGA;  // 800x600
-// 0..63, lower = better quality and bigger frames. Measured at SVGA: 12 gives
-// ~42 KB frames (WiFi saturates with 4 clients at 10 fps), 20 is the trade-off.
-constexpr int kJpegQuality = 20;
+// 0..63, lower = better quality and bigger frames. At SVGA/q10 frames are
+// ~25 KB (~380 KB/s at 15 fps): fine for 1-2 clients on a healthy 2.4 GHz link.
+constexpr int kJpegQuality = 10;
 constexpr int kXclkHz = 20000000;
 constexpr size_t kFrameBufferCount = 2;  // driver double-buffering in PSRAM
 
 // ---- Streaming --------------------------------------------------------------
-constexpr uint32_t kTargetFps = 10;
+constexpr uint32_t kTargetFps = 15;
 constexpr uint32_t kFramePeriodUs = 1000000UL / kTargetFps;
 
 // ---- RTSP -------------------------------------------------------------------
