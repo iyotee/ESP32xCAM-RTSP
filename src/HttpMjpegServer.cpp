@@ -5,9 +5,12 @@
 #include <esp32-hal-log.h>
 #include <esp_heap_caps.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "Camera.h"
+#include "Onvif.h"
+#include "Ptz.h"
 
 namespace {
 
@@ -88,7 +91,9 @@ void HttpMjpegServer::handleRequest(Client &c, FrameHub &hub, size_t rtspSession
                            "\"frames\":{\"captured\":%lu,\"lastSize\":%u,\"captureFailed\":%lu,"
                            "\"rtpRejected\":%lu,\"noFreeSlot\":%lu,\"lastJpegError\":\"%s\"},"
                            "\"mem\":{\"heap\":%u,\"psram\":%u},"
-                           "\"net\":{\"rssi\":%d,\"channel\":%d,\"rtspSessions\":%u}}\n",
+                           "\"net\":{\"rssi\":%d,\"channel\":%d,\"txPower\":%d,\"rtspSessions\":%u},"
+                           "\"sys\":{\"uptimeS\":%lu,\"ip\":\"%s\",\"mac\":\"%s\"},"
+                           "\"ptz\":{\"running\":%s,\"pan\":%d,\"tilt\":%d}}\n",
                            camera::running() ? "true" : "false", unsigned(camera::sensorPid()),
                            camera::lastInitError(), static_cast<unsigned long>(t.captured),
                            unsigned(t.lastSize), static_cast<unsigned long>(t.captureFailed),
@@ -97,12 +102,64 @@ void HttpMjpegServer::handleRequest(Client &c, FrameHub &hub, size_t rtspSession
                            rtpjpeg::toString(hub.lastJpegError()),
                            unsigned(heap_caps_get_free_size(MALLOC_CAP_INTERNAL)),
                            unsigned(heap_caps_get_free_size(MALLOC_CAP_SPIRAM)), WiFi.RSSI(), int(WiFi.channel()),
-                           unsigned(rtspSessions));
+                           int(WiFi.getTxPower()), unsigned(rtspSessions),
+                           static_cast<unsigned long>(millis() / 1000), WiFi.localIP().toString().c_str(),
+                           WiFi.macAddress().c_str(), ptz::running() ? "true" : "false",
+                           ptz::pan(), ptz::tilt());
     n = snprintf(response, sizeof(response),
                  "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\n"
                  "Content-Length: %d\r\n\r\n%s",
                  b, body);
     c.mode = Mode::kClosing;
+  } else if (isGet(c.rx, "/ptz/home")) {
+    ptz::home();
+    const int b = snprintf(response + 200, sizeof(response) - 200,
+                           "{\"pan\":%d,\"tilt\":%d}\n", ptz::pan(), ptz::tilt());
+    n = snprintf(response, 200,
+                 "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\n"
+                 "Content-Length: %d\r\n\r\n",
+                 b);
+    memcpy(response + n, response + 200, size_t(b));
+    n += b;
+    c.mode = Mode::kClosing;
+  } else if (isGet(c.rx, "/ptz")) {
+    const char *q = strstr(c.rx, "/ptz?");
+    if (q != nullptr) {
+      const char *pp = strstr(q, "pan=");
+      const char *tt = strstr(q, "tilt=");
+      if (pp != nullptr) ptz::setPan(atoi(pp + 4));
+      if (tt != nullptr) ptz::setTilt(atoi(tt + 5));
+    }
+    const int b = snprintf(response + 200, sizeof(response) - 200,
+                           "{\"pan\":%d,\"tilt\":%d}\n", ptz::pan(), ptz::tilt());
+    n = snprintf(response, 200,
+                 "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\n"
+                 "Content-Length: %d\r\n\r\n",
+                 b);
+    memcpy(response + n, response + 200, size_t(b));
+    n += b;
+    c.mode = Mode::kClosing;
+  } else if (startsWith(c.rx, "POST /onvif/")) {
+    if (c.onvifBody == nullptr) {
+      c.onvifBody = (uint8_t *)heap_caps_malloc(3072, MALLOC_CAP_SPIRAM);
+      if (c.onvifBody == nullptr) {
+        static const char e[] = "HTTP/1.1 500 Internal Server Error\r\nConnection: close\r\nContent-Length: 0\r\n\r\n";
+        net::sendSome(c.sock, e, sizeof(e) - 1);
+        close(c);
+        return;
+      }
+    }
+    const char *cl = strstr(c.rx, "Content-Length:");
+    c.onvifLen = cl != nullptr ? uint16_t(atoi(cl + 15)) : 0;
+    const char *he = strstr(c.rx, "\r\n\r\n");
+    const size_t hdrEnd = he != nullptr ? size_t(he - c.rx) + 4 : c.rxLen;
+    size_t already = c.rxLen > hdrEnd ? c.rxLen - hdrEnd : 0;
+    if (already > 3072) already = 3072;
+    memcpy(c.onvifBody, c.rx + hdrEnd, already);
+    c.onvifGot = uint16_t(already);
+    c.rxLen = 0;
+    c.mode = Mode::kOnvifRx;
+    return;
   } else if (isGet(c.rx, "/mjpeg")) {
     n = snprintf(response, sizeof(response),
                  "HTTP/1.1 200 OK\r\nContent-Type: multipart/x-mixed-replace; boundary=%s\r\n"
@@ -174,10 +231,13 @@ void HttpMjpegServer::pollClient(Client &c, uint32_t nowMs, FrameHub &hub, size_
   for (;;) {
     char scratch[64];
     const bool collecting = c.mode == Mode::kRequest;
-    char *dst = collecting ? c.rx + c.rxLen : scratch;
-    const size_t room = collecting ? sizeof(c.rx) - 1 - c.rxLen : sizeof(scratch);
+    const bool onvifRx = c.mode == Mode::kOnvifRx;
+    char *dst = collecting ? c.rx + c.rxLen
+                           : onvifRx ? (char *)(c.onvifBody + c.onvifGot) : scratch;
+    size_t room = collecting ? sizeof(c.rx) - 1 - c.rxLen
+                             : onvifRx ? 3072 - c.onvifGot : sizeof(scratch);
     if (room == 0) {
-      close(c);  // request headers too large
+      close(c);
       return;
     }
     const net::IoResult r = net::recvSome(c.sock, dst, room);
@@ -187,6 +247,41 @@ void HttpMjpegServer::pollClient(Client &c, uint32_t nowMs, FrameHub &hub, size_
       return;
     }
     if (collecting) c.rxLen += r.bytes;
+    if (onvifRx) c.onvifGot += uint16_t(r.bytes);
+  }
+
+  if (c.mode == Mode::kOnvifRx && c.onvifLen > 0 && c.onvifGot >= c.onvifLen) {
+    const char *action = strstr(c.rx, "SOAPAction:");
+    char actBuf[96] = "";
+    if (action != nullptr) {
+      const char *q1 = strchr(action + 10, '"');
+      const char *q2 = q1 != nullptr ? strchr(q1 + 1, '"') : nullptr;
+      if (q1 != nullptr && q2 != nullptr && q2 - q1 - 1 < int(sizeof(actBuf))) {
+        memcpy(actBuf, q1 + 1, size_t(q2 - q1 - 1));
+      }
+    }
+    // Render the SOAP body into a PSRAM scratch, then send headers+body.
+    static uint8_t *soap = nullptr;
+    if (soap == nullptr) soap = (uint8_t *)heap_caps_malloc(6144, MALLOC_CAP_SPIRAM);
+    if (soap == nullptr) { close(c); return; }
+    const size_t rn = onvif::handle(actBuf[0] ? actBuf : nullptr,
+                                    c.onvifBody, c.onvifLen, (char *)soap, 3800);
+    if (rn == 0) {
+      static const char err[] =
+          "HTTP/1.1 500 Internal Server Error\r\nConnection: close\r\nContent-Length: 0\r\n\r\n";
+      c.out.append(err, sizeof(err) - 1);
+      c.mode = Mode::kClosing;
+      return;
+    }
+    char hdr[192];
+    const int hn = snprintf(hdr, sizeof(hdr),
+                            "HTTP/1.1 200 OK\r\nContent-Type: application/soap+xml\r\n"
+                            "Connection: close\r\nContent-Length: %u\r\n\r\n",
+                            unsigned(rn));
+    c.out.append(hdr, size_t(hn));
+    c.out.append(soap, rn);
+    c.mode = Mode::kClosing;
+    return;
   }
 
   if (c.mode == Mode::kRequest) {

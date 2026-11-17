@@ -12,6 +12,7 @@
 #include "FrameHub.h"
 #include "HttpMjpegServer.h"
 #include "OtaServer.h"
+#include "Ptz.h"
 #include "RtspServer.h"
 #include "WifiLink.h"
 #include "config.h"
@@ -69,6 +70,7 @@ void setup() {
   // The OTA server starts before the camera so that a camera fault can still
   // be fixed remotely.
   gOta.begin();
+  ptz::begin();  // servos may be absent: non-fatal
 
   gStreaming = gRtsp.begin() && gHttp.begin();
   if (!gStreaming) log_e("cannot open listening sockets");
@@ -90,6 +92,7 @@ void loop() {
   const uint64_t nowUs = uint64_t(esp_timer_get_time());
 
   wifilink::poll(nowMs);
+  ptz::poll(nowMs);
   gOta.poll();
   if (gOta.updating()) return;  // the upload handler owns the CPU
 

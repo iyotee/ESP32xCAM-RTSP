@@ -19,17 +19,20 @@ class HttpMjpegServer {
   bool wantsFrames() const;
 
  private:
-  enum class Mode : uint8_t { kRequest, kStream, kSnapshot, kClosing };
+  enum class Mode : uint8_t { kRequest, kStream, kSnapshot, kClosing, kOnvifRx };
 
   struct Client {
     net::Socket sock;
     Mode mode = Mode::kRequest;
     char rx[512];
     size_t rxLen = 0;
-    net::Outbox<1024> out;
+    net::Outbox<4096> out;  // SOAP replies fit (~3.8 KB)
     FrameRef frame;
     uint32_t lastSequence = 0;
     uint32_t sinceMs = 0;
+    uint8_t *onvifBody = nullptr;  // PSRAM, allocated on first POST /onvif
+    uint16_t onvifLen = 0;
+    uint16_t onvifGot = 0;
   };
 
   void acceptClients(uint32_t nowMs);

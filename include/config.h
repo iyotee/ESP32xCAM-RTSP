@@ -43,6 +43,14 @@ constexpr size_t kRtpMaxPayload = 1400;
 constexpr uint16_t kHttpPort = 80;
 constexpr size_t kMaxHttpClients = 2;
 
+// ---- PTZ (two hobby servos: PAN on GPIO14, TILT on GPIO15) -------------------
+constexpr int kPanServoPin = 14;
+constexpr int kTiltServoPin = 15;
+constexpr int kServoMinPulseUs = 500;   // pulse width at 0 deg
+constexpr int kServoMaxPulseUs = 2400;  // pulse width at 180 deg
+constexpr int kServoHomeDeg = 90;
+constexpr float kPtzSpeedDegPerSec = 60.0f;  // continuous-move speed
+
 // ---- OTA --------------------------------------------------------------------
 constexpr uint16_t kOtaPort = 3232;
 
