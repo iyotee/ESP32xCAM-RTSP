@@ -39,8 +39,10 @@ bool FrameHub::store(FrameSlot &slot, const uint8_t *data, size_t length, uint64
   slot.captureUs = captureUs;
   const rtpjpeg::JpegError err = rtpjpeg::parseJpeg(slot.data, length, true, slot.rtp);
   slot.rtpValid = err == rtpjpeg::JpegError::kOk;
+  lastJpegError_ = err;
   if (!slot.rtpValid) {
     ++stats_.rtpRejected;
+    ++totals_.rtpRejected;
     log_w("frame not RTP/JPEG compatible (%s), %u bytes", rtpjpeg::toString(err), unsigned(length));
   }
   slot.sequence = ++sequence_;
@@ -64,11 +66,13 @@ void FrameHub::poll(uint64_t nowUs, bool demand) {
   FrameSlot *slot = freeSlot();
   if (slot == nullptr) {
     ++stats_.noFreeSlot;  // two laggards hold older frames: try again next loop
+    ++totals_.noFreeSlot;
     return;
   }
   CameraFrame fb = camera::grab();
   if (!fb || fb->format != PIXFORMAT_JPEG || fb->len == 0) {
     ++stats_.captureFailed;
+    ++totals_.captureFailed;
     nextCaptureUs_ = nowUs + cfg::kFramePeriodUs / 4;
     return;
   }
@@ -83,7 +87,9 @@ void FrameHub::poll(uint64_t nowUs, bool demand) {
 
   latest_ = slot;
   ++stats_.captured;
+  ++totals_.captured;
   stats_.lastSize = slot->length;
+  totals_.lastSize = slot->length;
   // Fixed cadence without bursts: if we fell behind, restart from now.
   nextCaptureUs_ += cfg::kFramePeriodUs;
   if (nextCaptureUs_ + cfg::kFramePeriodUs < nowUs || nextCaptureUs_ > nowUs + cfg::kFramePeriodUs) {

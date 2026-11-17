@@ -73,7 +73,10 @@ class FrameHub {
     uint32_t captureFailed = 0;
     size_t lastSize = 0;
   };
-  Stats takeStats();
+  Stats takeStats();  // counters since the previous takeStats(), then reset
+  const Stats &peekStats() const { return stats_; }
+  const Stats &peekTotals() const { return totals_; }  // cumulative since boot
+  rtpjpeg::JpegError lastJpegError() const { return lastJpegError_; }
 
  private:
   // Latest frame + one per concurrently lagging consumer before capture stalls.
@@ -89,4 +92,6 @@ class FrameHub {
   uint64_t waitingSinceUs_ = 0;
   uint64_t lastCaptureUs_ = 0;
   Stats stats_;
+  Stats totals_;
+  rtpjpeg::JpegError lastJpegError_ = rtpjpeg::JpegError::kOk;
 };

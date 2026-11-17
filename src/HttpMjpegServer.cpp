@@ -1,8 +1,13 @@
+#include <WiFi.h>
+
 #include "HttpMjpegServer.h"
 
 #include <esp32-hal-log.h>
+#include <esp_heap_caps.h>
 #include <stdio.h>
 #include <string.h>
+
+#include "Camera.h"
 
 namespace {
 
@@ -72,10 +77,33 @@ void HttpMjpegServer::acceptClients(uint32_t nowMs) {
   }
 }
 
-void HttpMjpegServer::handleRequest(Client &c, size_t rtspSessions) {
+void HttpMjpegServer::handleRequest(Client &c, FrameHub &hub, size_t rtspSessions) {
   char response[640];
   int n = 0;
-  if (isGet(c.rx, "/mjpeg")) {
+  if (isGet(c.rx, "/status")) {
+    const FrameHub::Stats &t = hub.peekTotals();
+    char body[448];
+    const int b = snprintf(body, sizeof(body),
+                           "{\"camera\":{\"running\":%s,\"pid\":\"0x%04x\",\"initError\":%d},"
+                           "\"frames\":{\"captured\":%lu,\"lastSize\":%u,\"captureFailed\":%lu,"
+                           "\"rtpRejected\":%lu,\"noFreeSlot\":%lu,\"lastJpegError\":\"%s\"},"
+                           "\"mem\":{\"heap\":%u,\"psram\":%u},"
+                           "\"net\":{\"rssi\":%d,\"channel\":%d,\"rtspSessions\":%u}}\n",
+                           camera::running() ? "true" : "false", unsigned(camera::sensorPid()),
+                           camera::lastInitError(), static_cast<unsigned long>(t.captured),
+                           unsigned(t.lastSize), static_cast<unsigned long>(t.captureFailed),
+                           static_cast<unsigned long>(t.rtpRejected),
+                           static_cast<unsigned long>(t.noFreeSlot),
+                           rtpjpeg::toString(hub.lastJpegError()),
+                           unsigned(heap_caps_get_free_size(MALLOC_CAP_INTERNAL)),
+                           unsigned(heap_caps_get_free_size(MALLOC_CAP_SPIRAM)), WiFi.RSSI(), int(WiFi.channel()),
+                           unsigned(rtspSessions));
+    n = snprintf(response, sizeof(response),
+                 "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\n"
+                 "Content-Length: %d\r\n\r\n%s",
+                 b, body);
+    c.mode = Mode::kClosing;
+  } else if (isGet(c.rx, "/mjpeg")) {
     n = snprintf(response, sizeof(response),
                  "HTTP/1.1 200 OK\r\nContent-Type: multipart/x-mixed-replace; boundary=%s\r\n"
                  "Cache-Control: no-store\r\nConnection: close\r\nAccess-Control-Allow-Origin: *\r\n\r\n",
@@ -89,7 +117,8 @@ void HttpMjpegServer::handleRequest(Client &c, size_t rtspSessions) {
     const int b = snprintf(body, sizeof(body),
                            "<!DOCTYPE html><html><head><title>%s</title></head><body>"
                            "<h1>%s</h1><p>RTSP: rtsp://&lt;ip&gt;:%u/%s - %u session(s)</p>"
-                           "<p><a href=\"/mjpeg\">MJPEG</a> | <a href=\"/jpg\">Snapshot</a></p>"
+                           "<p><a href=\"/mjpeg\">MJPEG</a> | <a href=\"/jpg\">Snapshot</a> | "
+                           "<a href=\"/status\">Status</a></p>"
                            "<img src=\"/mjpeg\"></body></html>",
                            cfg::kHostname, cfg::kServerName, unsigned(cfg::kRtspPort), cfg::kRtspPath,
                            unsigned(rtspSessions));
@@ -163,7 +192,7 @@ void HttpMjpegServer::pollClient(Client &c, uint32_t nowMs, FrameHub &hub, size_
   if (c.mode == Mode::kRequest) {
     c.rx[c.rxLen] = '\0';
     if (strstr(c.rx, "\r\n\r\n") != nullptr) {
-      handleRequest(c, rtspSessions);
+      handleRequest(c, hub, rtspSessions);
     } else if (nowMs - c.sinceMs > kRequestTimeoutMs) {
       close(c);
       return;
@@ -202,4 +231,3 @@ void HttpMjpegServer::poll(uint32_t nowMs, FrameHub &hub, size_t rtspSessions) {
     if (c.sock.valid()) pollClient(c, nowMs, hub, rtspSessions);
   }
 }
-

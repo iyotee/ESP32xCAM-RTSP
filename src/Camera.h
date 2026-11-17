@@ -42,6 +42,10 @@ bool begin();
 // Stops DMA and frees the driver buffers (used before an OTA update).
 void end();
 bool running();
+// PID of the detected sensor, 0 while the camera is not running.
+uint16_t sensorPid();
+// esp_err_t of the last esp_camera_init() attempt (ESP_OK while running).
+int lastInitError();
 // Blocks at most one sensor frame period when GRAB_LATEST has nothing ready.
 CameraFrame grab();
 

@@ -10,28 +10,37 @@ namespace camera {
 namespace {
 
 bool gRunning = false;
+uint16_t gSensorPid = 0;
+int gLastInitError = 0;  // ESP_OK until the first esp_camera_init() attempt
+
+// sensor_t is a table of function pointers: a control the sensor does not
+// implement stays NULL and calling it faults (reboot loop on foreign modules).
+template <typename F, typename A>
+void callCtl(F f, sensor_t *s, A a) {
+  if (f != nullptr) f(s, a);
+}
 
 void applySensorSettings(sensor_t *s) {
   // Neutral picture settings with automatic exposure, gain and white balance.
-  s->set_brightness(s, 0);
-  s->set_contrast(s, 0);
-  s->set_saturation(s, 0);
-  s->set_special_effect(s, 0);
-  s->set_whitebal(s, 1);
-  s->set_awb_gain(s, 1);
-  s->set_wb_mode(s, 0);
-  s->set_exposure_ctrl(s, 1);
-  s->set_aec2(s, 0);
-  s->set_gain_ctrl(s, 1);
-  s->set_gainceiling(s, GAINCEILING_2X);
-  s->set_bpc(s, 0);
-  s->set_wpc(s, 1);
-  s->set_raw_gma(s, 1);
-  s->set_lenc(s, 1);
-  s->set_hmirror(s, 0);
-  s->set_vflip(s, 0);
-  s->set_dcw(s, 1);
-  s->set_colorbar(s, 0);
+  callCtl(s->set_brightness, s, 0);
+  callCtl(s->set_contrast, s, 0);
+  callCtl(s->set_saturation, s, 0);
+  callCtl(s->set_special_effect, s, 0);
+  callCtl(s->set_whitebal, s, 1);
+  callCtl(s->set_awb_gain, s, 1);
+  callCtl(s->set_wb_mode, s, 0);
+  callCtl(s->set_exposure_ctrl, s, 1);
+  callCtl(s->set_aec2, s, 0);
+  callCtl(s->set_gain_ctrl, s, 1);
+  callCtl(s->set_gainceiling, s, GAINCEILING_2X);
+  callCtl(s->set_bpc, s, 0);
+  callCtl(s->set_wpc, s, 1);
+  callCtl(s->set_raw_gma, s, 1);
+  callCtl(s->set_lenc, s, 1);
+  callCtl(s->set_hmirror, s, 0);
+  callCtl(s->set_vflip, s, 0);
+  callCtl(s->set_dcw, s, 1);
+  callCtl(s->set_colorbar, s, 0);
 }
 
 }  // namespace
@@ -68,10 +77,12 @@ bool begin() {
   c.grab_mode = CAMERA_GRAB_LATEST;
 
   if (!psramFound()) {
-    log_e("PSRAM not detected: SVGA JPEG frame buffers need it");
+    log_e("PSRAM not detected: JPEG frame buffers need it");
+    gLastInitError = ESP_ERR_NOT_FOUND;
     return false;
   }
   const esp_err_t err = esp_camera_init(&c);
+  gLastInitError = err;
   if (err != ESP_OK) {
     log_e("esp_camera_init failed: 0x%x (%s)", err, esp_err_to_name(err));
     return false;
@@ -80,9 +91,12 @@ bool begin() {
   if (s == nullptr) {
     log_e("camera sensor not available");
     esp_camera_deinit();
+    gLastInitError = ESP_ERR_INVALID_STATE;
     return false;
   }
   applySensorSettings(s);
+  gSensorPid = s->id.PID;
+  gLastInitError = ESP_OK;
   gRunning = true;
   log_i("camera ready: PID 0x%02x, framesize %d, quality %d", s->id.PID, int(cfg::kFrameSize),
         cfg::kJpegQuality);
@@ -93,10 +107,15 @@ void end() {
   if (!gRunning) return;
   esp_camera_deinit();
   gRunning = false;
+  gSensorPid = 0;
   log_i("camera stopped");
 }
 
 bool running() { return gRunning; }
+
+uint16_t sensorPid() { return gSensorPid; }
+
+int lastInitError() { return gLastInitError; }
 
 CameraFrame grab() {
   if (!gRunning) return CameraFrame();

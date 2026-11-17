@@ -74,6 +74,10 @@ Socket acceptClient(const Socket &listener, sockaddr_in *peer) {
     return Socket();
   }
   setIntOption(s.fd(), IPPROTO_TCP, TCP_NODELAY, 1);
+  // lwIP's default ~5.7 KB send buffer caps throughput at snd_buf/RTT: on a
+  // high-latency link that is a few KB/s. Give streaming sockets more room.
+  int sndbuf = 65535;
+  setsockopt(s.fd(), SOL_SOCKET, SO_SNDBUF, &sndbuf, sizeof(sndbuf));
   setIntOption(s.fd(), SOL_SOCKET, SO_KEEPALIVE, 1);
   setIntOption(s.fd(), IPPROTO_TCP, TCP_KEEPIDLE, 10);
   setIntOption(s.fd(), IPPROTO_TCP, TCP_KEEPINTVL, 5);

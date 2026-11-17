@@ -36,6 +36,7 @@ void begin() {
   WiFi.setHostname(cfg::kHostname);
   WiFi.onEvent(onEvent);
   WiFi.setAutoReconnect(true);
+  WiFi.setTxPower(WIFI_POWER_19_5dBm);  // max: the PCB antenna is the weak link
 #if defined(WIFI_CHANNEL) && defined(WIFI_BSSID)
   static const uint8_t kBssid[6] = WIFI_BSSID;
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD, WIFI_CHANNEL, kBssid);

@@ -34,7 +34,7 @@ class HttpMjpegServer {
 
   void acceptClients(uint32_t nowMs);
   void pollClient(Client &c, uint32_t nowMs, FrameHub &hub, size_t rtspSessions);
-  void handleRequest(Client &c, size_t rtspSessions);
+  void handleRequest(Client &c, FrameHub &hub, size_t rtspSessions);
   void queueFrame(Client &c, FrameHub &hub);
   void close(Client &c);
 
