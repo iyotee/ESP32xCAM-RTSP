@@ -26,7 +26,7 @@ constexpr int kXclkHz = 20000000;
 constexpr size_t kFrameBufferCount = 2;  // driver double-buffering in PSRAM
 
 // ---- Streaming --------------------------------------------------------------
-constexpr uint32_t kTargetFps = 15;
+constexpr uint32_t kTargetFps = 30;
 constexpr uint32_t kFramePeriodUs = 1000000UL / kTargetFps;
 
 // ---- RTSP -------------------------------------------------------------------
